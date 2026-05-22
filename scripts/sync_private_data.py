@@ -1,16 +1,29 @@
 """
-Download .json (and .json.gz) data from a private GitHub repo (Contents API) into DATA_DIR.
+Download data from a private GitHub repo by fetching a single tarball archive.
+One HTTP request instead of thousands — avoids GitHub API rate limits entirely.
 Configure via env: GITHUB_TOKEN, GITHUB_DATA_REPO, GITHUB_DATA_BRANCH, GITHUB_DATA_SUBDIR, DATA_DIR, REQUIRE_PRIVATE_DATA.
 """
 from __future__ import annotations
 
+import io
 import json
 import os
 import sys
+import tarfile
 import urllib.error
 import urllib.request
 from pathlib import Path
 from urllib.parse import quote
+
+
+# Folder-based sources that have been consolidated into single JSON files.
+# These directories are skipped during extraction even if still present in the archive.
+# Paths are relative to GITHUB_DATA_SUBDIR (e.g. "data").
+SKIP_FOLDER_SOURCES: set[str] = {
+    "heilige_schrift_1917",
+    "canisiusbijbel",
+    "commentaries/dachsel",
+}
 
 
 def env_bool(key: str, default: bool = False) -> bool:
@@ -31,95 +44,112 @@ def github_headers(token: str | None) -> dict[str, str]:
     return h
 
 
-def github_request_json(url: str, token: str | None) -> dict | list:
-    req = urllib.request.Request(url, headers=github_headers(token))
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+def _should_skip(file_rel: str, skip_dirs: set[str]) -> bool:
+    """Return True if file_rel is inside one of the skip_dirs."""
+    for skip in skip_dirs:
+        if file_rel == skip or file_rel.startswith(skip + "/"):
+            return True
+    return False
 
 
-def github_list_dir(repo: str, branch: str, dir_path: str, token: str | None) -> list[dict]:
+def _download_tarball_bytes(repo: str, branch: str, token: str | None) -> bytes:
     """
-    List directory entries via GitHub Contents API.
-    dir_path: path within repo, e.g. "data/commentaries"
+    Fetch the repo tarball via the GitHub API.
+    GitHub returns a 302 redirect to a CDN URL. We follow that redirect
+    without auth headers (the CDN URL is pre-signed and doesn't need them,
+    and sending an Authorization header to S3 can cause a 400 error).
     """
-    parts = [quote(p, safe="") for p in dir_path.split("/") if p]
-    encoded = "/".join(parts)
-    if encoded:
-        url = f"https://api.github.com/repos/{repo}/contents/{encoded}?ref={quote(branch)}"
-    else:
-        url = f"https://api.github.com/repos/{repo}/contents?ref={quote(branch)}"
-    payload = github_request_json(url, token)
-    if isinstance(payload, list):
-        return payload
-    return []
+    api_url = f"https://api.github.com/repos/{repo}/tarball/{quote(branch)}"
+
+    class _NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            return None  # prevent auto-follow so we can strip auth
+
+    opener = urllib.request.build_opener(_NoRedirect)
+    req = urllib.request.Request(api_url, headers=github_headers(token))
+
+    download_url: str | None = None
+    try:
+        with opener.open(req, timeout=30) as resp:
+            # No redirect — read directly (unlikely for GitHub tarballs)
+            return resp.read()
+    except urllib.error.HTTPError as e:
+        if e.code not in (301, 302, 307, 308):
+            raise
+        download_url = e.headers.get("Location")
+        if not download_url:
+            raise RuntimeError("GitHub redirect missing Location header")
+
+    # Fetch the actual tarball from the CDN without auth headers
+    cdn_req = urllib.request.Request(download_url, headers={"User-Agent": "bijbelapi-data-sync"})
+    with urllib.request.urlopen(cdn_req, timeout=300) as resp:
+        content_length = int(resp.headers.get("Content-Length", 0))
+        if content_length:
+            mb = content_length / 1024 / 1024
+            print(f"[data-sync] Downloading {mb:.1f} MB …")
+        else:
+            print("[data-sync] Downloading archive …")
+        return resp.read()
 
 
-# Folder-based sources that have been consolidated into single JSON files.
-# The sync script skips these directories so only the consolidated file is downloaded.
-# Paths are relative to GITHUB_DATA_SUBDIR (e.g. "data").
-SKIP_FOLDER_SOURCES: set[str] = {
-    "heilige_schrift_1917",
-    "canisiusbijbel",
-    "commentaries/dachsel",
-}
-
-
-def github_collect_json_files(
+def download_and_extract(
     repo: str,
     branch: str,
     subdir: str,
     token: str | None,
-    skip_dirs: set[str] | None = None,
-) -> list[str]:
+    dest_dir: Path,
+    skip_dirs: set[str],
+) -> int:
     """
-    Recursively collect JSON file paths beneath `subdir`.
-    Returns repo-relative file paths, e.g. data/commentaries/matthew_henry_nl.json
-    skip_dirs: set of directory paths relative to subdir to skip entirely.
+    Download the repo as a tarball and extract JSON files from subdir into dest_dir.
+    Returns count of extracted files.
     """
-    skip_dirs = set(skip_dirs or [])
-    prefix = (subdir.strip("/") + "/") if subdir.strip("/") else ""
-    queue: list[str] = [subdir] if subdir else [""]
-    out: list[str] = []
-    seen: set[str] = set()
-    while queue:
-        current = queue.pop(0)
-        if current in seen:
-            continue
-        seen.add(current)
-        entries = github_list_dir(repo, branch, current, token)
-        for item in entries:
-            item_type = item.get("type")
-            item_path = str(item.get("path", "")).strip("/")
-            if not item_path:
-                continue
-            if item_type == "dir":
-                rel = item_path[len(prefix):] if prefix and item_path.startswith(prefix) else item_path
-                if rel in skip_dirs:
-                    print(f"[data-sync] skip folder (consolidated): {item_path}")
-                    continue
-                queue.append(item_path)
-                continue
-            if item_type != "file":
-                continue
-            if item_path.endswith(".json") or item_path.endswith(".json.gz"):
-                out.append(item_path)
-    return out
+    tarball = _download_tarball_bytes(repo, branch, token)
+    print(f"[data-sync] Extracting files …")
 
+    subdir_norm = subdir.strip("/")
+    prefix = subdir_norm + "/" if subdir_norm else ""
 
-def github_fetch_raw_file(repo: str, branch: str, file_path: str, token: str | None) -> bytes:
-    """
-    Fetch file bytes via Contents API (works for private repos where download_url is null).
-    file_path: path within repo, e.g. data/basisbijbel.json
-    """
-    # Encode each path segment; keep slashes
-    parts = [quote(p, safe="") for p in file_path.split("/") if p]
-    encoded = "/".join(parts)
-    url = f"https://api.github.com/repos/{repo}/contents/{encoded}?ref={quote(branch)}"
-    h = dict(github_headers(token))
-    h["Accept"] = "application/vnd.github.raw"
-    req = urllib.request.Request(url, headers=h)
-    with urllib.request.urlopen(req, timeout=300) as resp:
-        return resp.read()
+    count = 0
+    with tarfile.open(fileobj=io.BytesIO(tarball), mode="r:gz") as tar:
+        for member in tar.getmembers():
+            if not member.isfile():
+                continue
+
+            # GitHub tarballs have a generated top-level dir, e.g.
+            # "AlexLamper-bijbelapi-data-abc1234/data/statenvertaling.json"
+            # Strip it to get the repo-relative path.
+            parts = member.name.split("/", 1)
+            if len(parts) < 2:
+                continue
+            repo_rel = parts[1]
+
+            # Must be within our target subdir
+            if prefix and not repo_rel.startswith(prefix):
+                continue
+
+            file_rel = repo_rel[len(prefix):]  # path relative to subdir
+            if not file_rel:
+                continue
+
+            # Skip consolidated folder sources
+            if _should_skip(file_rel, skip_dirs):
+                continue
+
+            # Only JSON files
+            if not (file_rel.endswith(".json") or file_rel.endswith(".json.gz")):
+                continue
+
+            dest = dest_dir / file_rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+
+            f = tar.extractfile(member)
+            if f:
+                dest.write_bytes(f.read())
+                print(f"[data-sync] extract {repo_rel} -> {dest}")
+                count += 1
+
+    return count
 
 
 def main() -> int:
@@ -143,7 +173,7 @@ def main() -> int:
         print("[data-sync] WAARSCHUWING: GITHUB_TOKEN ontbreekt — private repo's falen waarschijnlijk.")
 
     try:
-        files = github_collect_json_files(repo, branch, subdir, token, skip_dirs=SKIP_FOLDER_SOURCES)
+        count = download_and_extract(repo, branch, subdir, token, data_dir, SKIP_FOLDER_SOURCES)
     except urllib.error.HTTPError as e:
         print(f"[data-sync] ERROR: GitHub HTTP {e.code}: {e.reason}")
         if require:
@@ -155,32 +185,8 @@ def main() -> int:
             return 1
         return 0
 
-    if not files:
-        print("[data-sync] WAARSCHUWING: geen JSON-bestanden gevonden in opgegeven subdir.")
-
-    downloaded = 0
-    subdir_norm = subdir.strip("/")
-    prefix = f"{subdir_norm}/" if subdir_norm else ""
-    for rel_path in files:
-        rel_path_norm = rel_path.strip("/")
-        if prefix and rel_path_norm.startswith(prefix):
-            target_rel = rel_path_norm[len(prefix):]
-        else:
-            target_rel = rel_path_norm
-        dest = data_dir / target_rel
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        print(f"[data-sync] download {rel_path} -> {dest}")
-        try:
-            body = github_fetch_raw_file(repo, branch, rel_path_norm, token)
-            dest.write_bytes(body)
-            downloaded += 1
-        except Exception as e:
-            print(f"[data-sync] ERROR bij {rel_path_norm}: {e}")
-            if require:
-                return 1
-
-    print(f"[data-sync] klaar: {downloaded} bestand(en).")
-    if downloaded == 0 and require:
+    print(f"[data-sync] klaar: {count} bestand(en).")
+    if count == 0 and require:
         print("[data-sync] ERROR: geen JSON gedownload terwijl REQUIRE_PRIVATE_DATA=true")
         return 1
     return 0

@@ -436,6 +436,7 @@ def load_all_versions():
             structured_data = {}
             books = raw_data.get("books")
             if isinstance(books, dict) and books:
+                # Standard wrapped format: {"books": {Book: {"chapters": {ch: {"verses": {v: text}}}}}}
                 for book_name, book_obj in books.items():
                     structured_data[book_name] = {}
                     chapters = book_obj.get("chapters") or {}
@@ -449,8 +450,9 @@ def load_all_versions():
                             continue
                         for v_key, text in verses_map.items():
                             structured_data[book_name][ch][str(v_key)] = text
-            else:
-                for verse in raw_data.get("verses", []):
+            elif raw_data.get("verses"):
+                # Old flat array format: {"verses": [{book_name, chapter, verse, text}]}
+                for verse in raw_data["verses"]:
                     book = verse.get("book_name")
                     chapter = str(verse.get("chapter"))
                     verse_number = str(verse.get("verse"))
@@ -460,6 +462,20 @@ def load_all_versions():
                     if chapter not in structured_data[book]:
                         structured_data[book][chapter] = {}
                     structured_data[book][chapter][verse_number] = text
+            else:
+                # New flat format: {BookName: {chapterNum: {verseNum: text}}}
+                first_val = next(iter(raw_data.values()), None) if raw_data else None
+                if isinstance(first_val, dict):
+                    for book_name, chapters_dict in raw_data.items():
+                        if not isinstance(chapters_dict, dict):
+                            continue
+                        structured_data[book_name] = {}
+                        for ch_key, verses_dict in chapters_dict.items():
+                            if not isinstance(verses_dict, dict):
+                                continue
+                            structured_data[book_name][str(ch_key)] = {
+                                str(v): str(t) for v, t in verses_dict.items()
+                            }
             normalized_name = version_name.lower()
             canonical_name = TRANSLATION_ALIASES.get(normalized_name, normalized_name)
             if normalized_name in LEGACY_TRANSLATIONS:
@@ -472,14 +488,22 @@ def load_all_versions():
             if meta:
                 meta_out = meta
             else:
-                meta_out = {}
-                if raw_data.get("name"):
-                    meta_out["name"] = raw_data["name"]
-                if raw_data.get("id"):
-                    meta_out["shortname"] = raw_data["id"]
-                    meta_out["module"] = raw_data["id"]
-                if raw_data.get("name") or raw_data.get("id"):
-                    meta_out["lang"] = "nl"
+                # For flat-format files, pull metadata from FOLDER_TRANSLATIONS config
+                folder_info = next(
+                    (info for info in FOLDER_TRANSLATIONS.values() if info["key"] == canonical_name),
+                    None,
+                )
+                if folder_info:
+                    meta_out = folder_info["meta"]
+                else:
+                    meta_out = {}
+                    if raw_data.get("name"):
+                        meta_out["name"] = raw_data["name"]
+                    if raw_data.get("id"):
+                        meta_out["shortname"] = raw_data["id"]
+                        meta_out["module"] = raw_data["id"]
+                    if raw_data.get("name") or raw_data.get("id"):
+                        meta_out["lang"] = "nl"
             versions[canonical_name] = {
                 "meta": meta_out,
                 "data": structured_data
@@ -495,7 +519,9 @@ def load_all_versions():
 
 _maybe_sync_private_repo_bible_data()
 all_versions = load_all_versions()
-all_versions.update(load_folder_based_versions())
+for _k, _v in load_folder_based_versions().items():
+    if _k not in all_versions:
+        all_versions[_k] = _v
 
 def get_version_key(version: str):
     version = version.lower()
@@ -593,6 +619,20 @@ def load_commentaries():
                         if key in commentaries:
                             logging.info(f"Sla duplicate commentary over: {key} ({path})")
                             continue
+                        # Normalize flat format {Book: {ch: {v: text}}} → standard wrapped format
+                        if not raw.get("books") and not raw.get("meta"):
+                            first_val = next(iter(raw.values()), None)
+                            if isinstance(first_val, dict):
+                                books_norm: dict = {}
+                                for bk, chs in raw.items():
+                                    if not isinstance(chs, dict):
+                                        continue
+                                    books_norm[bk] = {"chapters": {
+                                        str(ch): ({str(v): str(t) for v, t in vv.items()} if isinstance(vv, dict) else {})
+                                        for ch, vv in chs.items()
+                                    }}
+                                fc_meta = FOLDER_COMMENTARIES.get(key, {}).get("meta", {"id": key})
+                                raw = {"meta": fc_meta, "books": books_norm}
                         commentaries[key] = raw
                         logging.info(f"Loaded commentary '{key}' from {path}")
                 except Exception as e:

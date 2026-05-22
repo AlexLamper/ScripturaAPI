@@ -210,6 +210,7 @@ FREE_ROUTE_LIMITS_PER_MINUTE: dict[str, int] = {
     "/api/commentary": 20,
     "/api/parse/reference": 20,
     "/api/parse/references": 10,
+    "/api/commentaries": 10,
 }
 
 # CORS settings
@@ -284,7 +285,16 @@ FOLDER_COMMENTARIES = {
             "id": "dachsel",
             "name": "Karl August Dachsel Bijbelcommentaar",
             "lang": "nl",
+            "description": "Uitgebreid 19e-eeuws Luthers bijbelcommentaar door Karl August Dachsel, vertaald naar het Nederlands. Bevat theologische uitleg, kruisverwijzingen en voetnoten per vers.",
         },
+    },
+}
+
+COMMENTARY_META_OVERRIDES: dict[str, dict] = {
+    "matthew_henry_nl": {
+        "name": "Matthew Henry Commentaar (NL)",
+        "lang": "nl",
+        "description": "Nederlandse vertaling van het klassieke Engelstalige bijbelcommentaar van Matthew Henry (1662–1714). Bevat praktisch-devotionele uitleg voor elk bijbelboek.",
     },
 }
 
@@ -682,6 +692,9 @@ def load_commentaries():
     return commentaries
 
 all_commentaries = load_commentaries()
+for _ck, _cm in COMMENTARY_META_OVERRIDES.items():
+    if _ck in all_commentaries:
+        all_commentaries[_ck].setdefault("meta", {}).update(_cm)
 
 def normalize_commentary_book(source_key: str, book_name: str):
     """
@@ -943,6 +956,22 @@ def get_versions(request: Request):
         }
         for k, v in all_versions.items()
     ]
+
+@app.get("/api/commentaries")
+@limiter.limit("10/minute")
+def get_commentaries(request: Request):
+    result = []
+    for k, v in all_commentaries.items():
+        meta = v.get("meta", {})
+        books = v.get("books", {})
+        result.append({
+            "key": k,
+            "name": meta.get("name", k),
+            "lang": meta.get("lang"),
+            "book_count": len(books),
+            "description": meta.get("description"),
+        })
+    return result
 
 @app.get("/api/chapter")
 def get_chapter(book: str, chapter: str, request: Request, version: str = DEFAULT_TRANSLATION, x_api_key: Optional[str] = Security(optional_api_key_header)):

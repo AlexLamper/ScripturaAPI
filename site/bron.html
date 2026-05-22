@@ -26,13 +26,14 @@
             </p>
 
             <p>
+                Naast de Bijbelteksten biedt BijbelAPI ook bijbelcommentaren aan.
+                <span id="bronCommentariesInline" class="text-slate-600"> (gegevens worden geladen…)</span>
+            </p>
+
+            <p>
                 Vertalingen kunnen onder auteursrecht en licentievoorwaarden van uitgevers of stichtingen vallen.
                 Gebruik de API alleen in lijn met de licentie van de betreffende brontekst en je eigen juridische advies.
                 BijbelAPI claimt geen eigendom op de Bijbelteksten zelf.
-            </p>
-            <p>
-                Commentaar- en hulpteksten (indien aangeboden) hebben een eigen bron; raadpleeg de metadata in de API-responses
-                en je overeenkomsten voor commercieel gebruik.
             </p>
             <p>
                 <a href="/privacy.html" class="font-medium text-blue-700 hover:underline">Privacy</a>
@@ -99,10 +100,47 @@
                         ' Welke coderingen actief zijn, kun je nakijken met <code class="rounded bg-slate-100 px-1 py-0.5 font-mono text-slate-900">GET /api/versions</code> of op <a href="/docs" class="font-medium text-blue-700 hover:underline">/docs</a>.';
                 });
         }
+        function loadCommentariesInline() {
+            var el = document.getElementById('bronCommentariesInline');
+            if (!el) return;
+            fetch('/api/commentaries', { headers: { Accept: 'application/json' } })
+                .then(function (res) {
+                    if (!res.ok) throw new Error('bad status');
+                    return res.json();
+                })
+                .then(function (data) {
+                    if (!Array.isArray(data)) throw new Error('bad payload');
+                    if (data.length === 0) {
+                        el.innerHTML = ' Er zijn momenteel geen commentaren beschikbaar.';
+                        return;
+                    }
+                    var bits = data.map(function (item) {
+                        var key = item.key || '';
+                        var title = item.name || key;
+                        return (
+                            '<strong>' +
+                            esc(title) +
+                            '</strong> (<code class="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs text-slate-900">' +
+                            esc(key) +
+                            '</code>)'
+                        );
+                    });
+                    el.innerHTML =
+                        ' Momenteel zijn onder andere ' + joinNl(bits) + ' beschikbaar.';
+                })
+                .catch(function () {
+                    el.innerHTML =
+                        ' Welke commentaren actief zijn, kun je nakijken met <code class="rounded bg-slate-100 px-1 py-0.5 font-mono text-slate-900">GET /api/commentaries</code>.';
+                });
+        }
         if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', loadVersionsInline);
+            document.addEventListener('DOMContentLoaded', function () {
+                loadVersionsInline();
+                loadCommentariesInline();
+            });
         } else {
             loadVersionsInline();
+            loadCommentariesInline();
         }
     })();
     </script>

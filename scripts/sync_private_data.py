@@ -54,11 +54,30 @@ def github_list_dir(repo: str, branch: str, dir_path: str, token: str | None) ->
     return []
 
 
-def github_collect_json_files(repo: str, branch: str, subdir: str, token: str | None) -> list[str]:
+# Folder-based sources that have been consolidated into single JSON files.
+# The sync script skips these directories so only the consolidated file is downloaded.
+# Paths are relative to GITHUB_DATA_SUBDIR (e.g. "data").
+SKIP_FOLDER_SOURCES: set[str] = {
+    "heilige_schrift_1917",
+    "canisiusbijbel",
+    "commentaries/dachsel",
+}
+
+
+def github_collect_json_files(
+    repo: str,
+    branch: str,
+    subdir: str,
+    token: str | None,
+    skip_dirs: set[str] | None = None,
+) -> list[str]:
     """
     Recursively collect JSON file paths beneath `subdir`.
     Returns repo-relative file paths, e.g. data/commentaries/matthew_henry_nl.json
+    skip_dirs: set of directory paths relative to subdir to skip entirely.
     """
+    skip_dirs = set(skip_dirs or [])
+    prefix = (subdir.strip("/") + "/") if subdir.strip("/") else ""
     queue: list[str] = [subdir] if subdir else [""]
     out: list[str] = []
     seen: set[str] = set()
@@ -74,6 +93,10 @@ def github_collect_json_files(repo: str, branch: str, subdir: str, token: str | 
             if not item_path:
                 continue
             if item_type == "dir":
+                rel = item_path[len(prefix):] if prefix and item_path.startswith(prefix) else item_path
+                if rel in skip_dirs:
+                    print(f"[data-sync] skip folder (consolidated): {item_path}")
+                    continue
                 queue.append(item_path)
                 continue
             if item_type != "file":
@@ -120,7 +143,7 @@ def main() -> int:
         print("[data-sync] WAARSCHUWING: GITHUB_TOKEN ontbreekt — private repo's falen waarschijnlijk.")
 
     try:
-        files = github_collect_json_files(repo, branch, subdir, token)
+        files = github_collect_json_files(repo, branch, subdir, token, skip_dirs=SKIP_FOLDER_SOURCES)
     except urllib.error.HTTPError as e:
         print(f"[data-sync] ERROR: GitHub HTTP {e.code}: {e.reason}")
         if require:

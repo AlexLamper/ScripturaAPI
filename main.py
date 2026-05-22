@@ -236,20 +236,56 @@ async def log_requests(request: Request, call_next):
 
 # --- Multi-version support for Bible texts ---
 DEFAULT_TRANSLATION = "sv"
-SUPPORTED_TRANSLATIONS = {"bb", "sv", "hsv"}
+SUPPORTED_TRANSLATIONS = {"sv", "hs1917", "canisius"}
 LEGACY_TRANSLATIONS = {"asv", "kjv"}
 ENGLISH_COMMENTARY_KEYS = {"matthew-henry"}
 TRANSLATION_ALIASES = {
     "statenvertaling": "sv",
     "staten vertaling": "sv",
     "stve": "sv",
-    "herziene-statenvertaling": "hsv",
-    "basisbijbel": "bb",
-    "nlb": "bb",
+    "heilige-schrift": "hs1917",
+    "heilige-schrift-1917": "hs1917",
+    "heilige_schrift_1917": "hs1917",
+    "canisiusbijbel": "canisius",
 }
 COMMENTARY_SOURCE_ALIASES = {
     "matthew-henry": "matthew_henry_nl",
     "matthew-henry-nl": "matthew_henry_nl",
+    "dachsel": "dachsel",
+}
+FOLDER_TRANSLATIONS = {
+    "heilige_schrift_1917": {
+        "key": "hs1917",
+        "meta": {
+            "name": "De Heilige Schrift (1917)",
+            "shortname": "hs1917",
+            "module": "hs1917",
+            "lang": "nl",
+            "year": 1917,
+            "description": "Rooms-Katholieke bijbelvertaling uit 1917",
+        },
+    },
+    "canisiusbijbel": {
+        "key": "canisius",
+        "meta": {
+            "name": "Canisiusbijbel",
+            "shortname": "canisius",
+            "module": "canisius",
+            "lang": "nl",
+            "year": 1939,
+            "description": "Rooms-Katholieke Canisiusbijbel vertaling",
+        },
+    },
+}
+FOLDER_COMMENTARIES = {
+    "dachsel": {
+        "key": "dachsel",
+        "meta": {
+            "id": "dachsel",
+            "name": "Karl August Dachsel Bijbelcommentaar",
+            "lang": "nl",
+        },
+    },
 }
 
 def _bible_data_candidate_dirs() -> list[str]:
@@ -308,6 +344,55 @@ def _maybe_sync_private_repo_bible_data() -> None:
             logging.info("[data-sync] Klaar.")
     except Exception as e:
         logging.exception("[data-sync] Sync mislukt: %s", e)
+
+
+def _load_folder_based_translation(trans_dir: str) -> dict:
+    """Load a translation stored as one folder per book, one JSON file per chapter."""
+    structured = {}
+    if not os.path.isdir(trans_dir):
+        return structured
+    for book_name in os.listdir(trans_dir):
+        book_dir = os.path.join(trans_dir, book_name)
+        if not os.path.isdir(book_dir):
+            continue
+        chapters: dict = {}
+        for fname in os.listdir(book_dir):
+            if fname == "chapters.json" or not fname.endswith(".json"):
+                continue
+            match = re.search(r'(\d+)$', fname[:-5])
+            if not match:
+                continue
+            chapter_num = match.group(1)
+            path = os.path.join(book_dir, fname)
+            try:
+                with open(path, encoding="utf-8") as f:
+                    verses = json.load(f)
+                chapters[chapter_num] = {str(k): str(v) for k, v in verses.items()}
+            except Exception as e:
+                logging.warning(f"Failed to load chapter file {path}: {e}")
+        if chapters:
+            structured[book_name] = chapters
+    return structured
+
+
+def load_folder_based_versions() -> dict:
+    """Load all translations defined in FOLDER_TRANSLATIONS from candidate data dirs."""
+    candidate_dirs = _bible_data_candidate_dirs()
+    new_versions: dict = {}
+    for folder_name, info in FOLDER_TRANSLATIONS.items():
+        key = info["key"]
+        meta = info["meta"]
+        for base_dir in candidate_dirs:
+            trans_dir = os.path.join(base_dir, folder_name)
+            if os.path.isdir(trans_dir):
+                data = _load_folder_based_translation(trans_dir)
+                if data:
+                    new_versions[key] = {"meta": meta, "data": data}
+                    logging.info(f"Loaded folder-based translation '{key}' from {trans_dir} ({len(data)} books)")
+                    break
+        else:
+            logging.warning(f"Folder-based translation '{folder_name}' not found in: {candidate_dirs}")
+    return new_versions
 
 
 def load_all_versions():
@@ -399,9 +484,10 @@ def load_all_versions():
                 "meta": meta_out,
                 "data": structured_data
             }
+    folder_based_keys = {info["key"] for info in FOLDER_TRANSLATIONS.values()}
     missing_translations = [
         code for code in sorted(SUPPORTED_TRANSLATIONS)
-        if not any(key.lower() == code for key in versions.keys())
+        if code not in folder_based_keys and not any(key.lower() == code for key in versions.keys())
     ]
     if missing_translations:
         logging.warning(f"Ontbrekende verplichte vertalingen: {', '.join(missing_translations)}")
@@ -409,6 +495,7 @@ def load_all_versions():
 
 _maybe_sync_private_repo_bible_data()
 all_versions = load_all_versions()
+all_versions.update(load_folder_based_versions())
 
 def get_version_key(version: str):
     version = version.lower()
@@ -474,12 +561,16 @@ def load_commentaries():
     candidate_dirs = _commentary_candidate_dirs()
     found_any_dir = False
 
+    folder_commentary_names = set(FOLDER_COMMENTARIES.keys())
+
     # Walk through all candidate directories to find JSON files
     for base_dir in candidate_dirs:
         if not os.path.isdir(base_dir):
             continue
         found_any_dir = True
         for root, dirs, files in os.walk(base_dir):
+            # Skip directories that are handled as folder-based commentaries
+            dirs[:] = [d for d in dirs if d not in folder_commentary_names]
             for fname in files:
                 path = os.path.join(root, fname)
                 raw = None
@@ -506,6 +597,43 @@ def load_commentaries():
                         logging.info(f"Loaded commentary '{key}' from {path}")
                 except Exception as e:
                     logging.warning(f"Failed to load commentary file {path}: {e}")
+
+    # Load folder-based commentaries (e.g. dachsel: one folder per book, one file per chapter)
+    for base_dir in candidate_dirs:
+        if not os.path.isdir(base_dir):
+            continue
+        for folder_name, info in FOLDER_COMMENTARIES.items():
+            source_key = info["key"]
+            if source_key in commentaries:
+                continue
+            folder_path = os.path.join(base_dir, folder_name)
+            if not os.path.isdir(folder_path):
+                continue
+            books: dict = {}
+            for book_name in os.listdir(folder_path):
+                book_dir = os.path.join(folder_path, book_name)
+                if not os.path.isdir(book_dir):
+                    continue
+                chapters: dict = {}
+                for fname in os.listdir(book_dir):
+                    if fname == "chapters.json" or not fname.endswith(".json"):
+                        continue
+                    match = re.search(r'(\d+)$', fname[:-5])
+                    if not match:
+                        continue
+                    chapter_num = match.group(1)
+                    path = os.path.join(book_dir, fname)
+                    try:
+                        with open(path, encoding="utf-8") as f:
+                            verses = json.load(f)
+                        chapters[chapter_num] = {str(k): str(v) for k, v in verses.items()}
+                    except Exception as e:
+                        logging.warning(f"Failed to load commentary file {path}: {e}")
+                if chapters:
+                    books[book_name] = {"chapters": chapters}
+            if books:
+                commentaries[source_key] = {"meta": info["meta"], "books": books}
+                logging.info(f"Loaded folder-based commentary '{source_key}' from {folder_path} ({len(books)} books)")
 
     if not found_any_dir:
         logging.warning(

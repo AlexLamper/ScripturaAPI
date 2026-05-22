@@ -1,0 +1,25 @@
+2026-05-22 11:39:19,735 INFO Sla niet-ondersteunde vertaling over: basisbijbel
+2026-05-22 11:39:19,806 INFO Sla niet-ondersteunde vertaling over: hsv
+2026-05-22 11:39:20,398 INFO Loaded folder-based translation 'hs1917' from C:\Projects\bijbelapi-data\data\heilige_schrift_1917 (66 books)
+2026-05-22 11:39:20,994 INFO Loaded folder-based translation 'canisius' from C:\Projects\bijbelapi-data\data\canisiusbijbel (73 books)
+2026-05-22 11:39:21,242 INFO Loaded commentary 'matthew_henry_nl' from C:\Projects\bijbelapi-data\data\commentaries\matthew_henry_nl.json
+2026-05-22 11:39:21,952 INFO Loaded folder-based commentary 'dachsel' from C:\Projects\bijbelapi-data\data\commentaries\dachsel (66 books)
+INFO:     Started server process [4528]
+INFO:     Waiting for application startup.
+2026-05-22 11:39:23,084 INFO MongoDB billing indexes OK (bijbelapi, via MONGODB_URI)
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8081 (Press CTRL+C to quit)
+2026-05-22 11:39:41,991 INFO Request: 127.0.0.1 /api/versions
+2026-05-22 11:39:42,564 INFO Request: 127.0.0.1 /api/verse
+2026-05-22 11:39:43,058 INFO Request: 127.0.0.1 /api/verse
+2026-05-22 11:39:43,571 INFO Request: 127.0.0.1 /api/verse
+2026-05-22 11:39:44,058 INFO Request: 127.0.0.1 /api/commentary
+2026-05-22 11:39:44,567 INFO Request: 127.0.0.1 /api/commentary
+2026-05-22 11:39:45,111 INFO Request: 127.0.0.1 /api/verse
+2026-05-22 11:39:45,115 INFO Gevraagde vertaling 'hsv' niet gevonden; fallback naar default 'sv'.
+2026-05-22 11:39:45,595 INFO Request: 127.0.0.1 /api/verse
+2026-05-22 11:39:45,597 INFO Gevraagde vertaling 'bb' niet gevonden; fallback naar default 'sv'.
+2026-05-22 11:39:46,072 INFO Request: 127.0.0.1 /api/books
+2026-05-22 11:39:46,545 INFO Request: 127.0.0.1 /api/chapters
+2026-05-22 11:39:47,020 INFO Request: 127.0.0.1 /api/search
+2026-05-22 11:39:47,490 INFO Request: 127.0.0.1 /api/random

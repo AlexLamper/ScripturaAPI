@@ -121,7 +121,7 @@ Deze API staat onder de [MIT-licentie](LICENSE).
 ## Contact
 
 - GitHub: [@AlexLamper](https://github.com/AlexLamper)
-- Mail: `devlamper06@gmail.com`
+- Mail: `info@bijbelquiz.com`
 - BijbelAPI: [https://bijbelapi.com](https://bijbelapi.com)
 
 ## 📌 Versie

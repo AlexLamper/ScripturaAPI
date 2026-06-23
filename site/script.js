@@ -586,15 +586,17 @@ function firstSentenceFromDescription(raw) {
 
 function versionsDisplayTitle(key, apiName, fallbackKey) {
     const k = String(key || '').toLowerCase();
-    if (k === 'bb') return 'BasisBijbel (Ed. 2025-5)';
+    if (k === 'sv') return 'Statenvertaling (sv)';
+    if (k === 'hs1917') return 'De Heilige Schrift 1917 (hs1917)';
+    if (k === 'canisius') return 'Canisiusbijbel (canisius)';
     return String(apiName || fallbackKey || '');
 }
 
 function versionsDisplayDescription(key, apiDescription) {
     const k = String(key || '').toLowerCase();
-    if (k === 'sv') return 'De Nederlandse Staten Vertaling';
-    if (k === 'hsv') return 'De Herziene Statenvertaling, geactualiseerd klassiek Nederlands';
-    if (k === 'bb') return 'De BasisBijbel, de bijbel in makkelijk Nederlands';
+    if (k === 'sv') return 'De Nederlandse Statenvertaling';
+    if (k === 'hs1917') return 'De Heilige Schrift 1917, Rooms-Katholieke bijbelvertaling';
+    if (k === 'canisius') return 'De Canisiusbijbel, Rooms-Katholieke vertaling uit 1939';
     const one = firstSentenceFromDescription(apiDescription);
     return one || 'Geen beschrijving beschikbaar.';
 }

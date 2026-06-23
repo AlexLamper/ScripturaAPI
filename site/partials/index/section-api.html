@@ -23,13 +23,13 @@
                         <p class="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Vers ophalen (GET)</p>
                         <pre class="overflow-x-auto font-mono text-xs leading-relaxed text-slate-300">curl -sS "https://bijbelapi.com/api/verse\
   ?book=Johannes&amp;chapter=3&amp;verse=16\
-  &amp;version=bb" \
+  &amp;version=sv" \
   -H "Accept: application/json"</pre>
                     </div>
                     <div class="bg-slate-900 p-5">
                         <p class="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Met Pro API-sleutel</p>
                         <pre class="overflow-x-auto font-mono text-xs leading-relaxed text-slate-300">curl -sS "https://bijbelapi.com/api/search\
-  ?q=licht&amp;version=bb" \
+  ?q=licht&amp;version=sv" \
   -H "Accept: application/json" \
   -H "x-api-key: JOUW-API-SLEUTEL"</pre>
                     </div>
@@ -40,7 +40,7 @@
   "book": "Johannes",
   "chapter": 3,
   "verse": 16,
-  "version": "bb",
+  "version": "sv",
   "text": "Want alzo lief heeft God de wereld gehad, dat Hij zijn eniggeboren Zoon gegeven heeft..."
 }</pre>
                 </div>
@@ -54,7 +54,7 @@
                         <pre class="overflow-x-auto font-mono text-xs leading-relaxed text-slate-300">const res = await fetch(
   'https://bijbelapi.com/api/verse' +
   '?book=Johannes&chapter=3&verse=16' +
-  '&version=bb',
+  '&version=sv',
   { headers: { Accept: 'application/json' } }
 );
 const data = await res.json();
@@ -78,7 +78,7 @@ const data = await res.json();</pre>
                     <p class="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-600">Voorbeeld response</p>
                     <pre class="overflow-x-auto font-mono text-xs leading-relaxed text-slate-400">{
   "book": "Johannes", "chapter": 3, "verse": 16,
-  "version": "bb",
+  "version": "sv",
   "text": "Want alzo lief heeft God de wereld gehad..."
 }</pre>
                 </div>
@@ -96,7 +96,7 @@ r = requests.get(
     params={
         "book": "Johannes",
         "chapter": 3, "verse": 16,
-        "version": "bb",
+        "version": "sv",
     },
 )
 print(r.json()["text"])</pre>
@@ -107,7 +107,7 @@ print(r.json()["text"])</pre>
 
 r = requests.get(
     "https://bijbelapi.com/api/search",
-    params={"q": "licht", "version": "bb"},
+    params={"q": "licht", "version": "sv"},
     headers={"x-api-key": "JOUW-API-SLEUTEL"},
 )
 results = r.json()</pre>
@@ -117,7 +117,7 @@ results = r.json()</pre>
                     <p class="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-600">Voorbeeld response</p>
                     <pre class="overflow-x-auto font-mono text-xs leading-relaxed text-slate-400">{
   "book": "Johannes", "chapter": 3, "verse": 16,
-  "version": "bb",
+  "version": "sv",
   "text": "Want alzo lief heeft God de wereld gehad..."
 }</pre>
                 </div>
